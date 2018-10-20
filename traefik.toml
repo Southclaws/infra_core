@@ -1,0 +1,56 @@
+# -
+# Global configuration
+# -
+
+# Accepted values, in order of severity:
+# "DEBUG", "INFO", "WARN", "ERROR", "FATAL", "PANIC"
+logLevel = "INFO"
+defaultEntryPoints = ["http", "https"]
+# defaultEntryPoints = ["http"]
+format = "common"
+
+
+[entryPoints]
+  [entryPoints.http]
+  address = ":80"
+  [entryPoints.https]
+  address = ":443"
+    [entryPoints.https.tls]
+  [entryPoints.traefik]
+    address=":8080"
+
+[acme]
+  email = "user@email.com"
+  entryPoint = "https"
+  storage = "/etc/traefik/acme/acme.json"
+  acmeLogging = true
+  onHostRule = true
+  [acme.httpChallenge]
+    entryPoint = "http"
+
+# -
+# Web configuration backend
+# -
+
+[api]
+  entryPoint = "traefik"
+  dashboard = true
+  debug = true
+
+# -
+# Docker configuration backend
+# -
+
+[docker]
+  endpoint = "unix:///var/run/docker.sock"
+  exposedbydefault = false
+  watch = true
+  network = "gateway"
+
+# -
+# Metrics
+# -
+
+[metrics]
+  [metrics.prometheus]
+    entryPoint = "traefik"

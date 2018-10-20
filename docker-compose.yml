@@ -1,0 +1,149 @@
+version: "3.5"
+
+networks:
+  default:
+    external:
+      name: gateway
+
+  prometheus:
+    driver: bridge
+    internal: true
+
+services:
+  watchtower:
+    image: v2tec/watchtower
+    command: --label-enable --interval=30
+    restart: on-failure
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+
+  traefik:
+    image: traefik:1.6
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8080:8080"
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock"
+      - "./traefik.toml:/etc/traefik/traefik.toml"
+      - "${DATA_DIR}/acme:/etc/traefik/acme"
+    networks:
+      - default
+    labels:
+      - traefik.enable=true
+      - "traefik.frontend.rule=Host:traefik-${MACHINE_NAME}.${TOP_LEVEL_DOMAIN_NAME}"
+      - traefik.port=8080
+      - traefik.frontend.auth.basic=${CORE_SERVICES_BASIC_AUTH}
+      - com.centurylinklabs.watchtower.enable=true
+      - hash=u3h9hfo3ho
+
+  portainer:
+    image: portainer/portainer:latest
+    command: "--bind :80"
+    restart: always
+    ports:
+      - "9000:80"
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock"
+      - "${DATA_DIR}/portainer_data:/data"
+    networks:
+      - default
+    labels:
+      - traefik.enable=true
+      - "traefik.frontend.rule=Host:portainer-${MACHINE_NAME}.${TOP_LEVEL_DOMAIN_NAME}"
+      - com.centurylinklabs.watchtower.enable=true
+
+  node-exporter:
+    image: "prom/node-exporter"
+    command:
+      - "--path.procfs=/host/proc"
+      - "--path.sysfs=/host/sys"
+      - "--collector.filesystem.ignored-mount-points"
+      - "^/(sys|proc|dev|host|etc|rootfs/var/lib/docker/containers|rootfs/var/lib/docker/overlay2|rootfs/run/docker/netns|rootfs/var/lib/docker/aufs)($$|/)"
+    restart: always
+    ports:
+      - "9100:9100"
+    volumes:
+      - "/proc:/host/proc:ro"
+      - "/sys:/host/sys:ro"
+      - "/:/rootfs:ro"
+    networks:
+      - default
+      - prometheus
+    labels:
+      - traefik.enable=false
+      - com.centurylinklabs.watchtower.enable=true
+
+  cadvisor:
+    image: "google/cadvisor"
+    command:
+      - "--port=9200"
+      - "--allow_dynamic_housekeeping=true"
+      - "--global_housekeeping_interval=1m"
+      - "--housekeeping_interval=30s"
+    restart: always
+    ports:
+      - "9200:9200"
+    volumes:
+      - "/:/rootfs:ro"
+      - "/var/run:/var/run:rw"
+      - "/sys:/sys:ro"
+      - "/var/lib/docker/:/var/lib/docker:ro"
+    networks:
+      - default
+      - prometheus
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=gateway
+      - "traefik.frontend.rule=Host:cadvisor-${MACHINE_NAME}.${TOP_LEVEL_DOMAIN_NAME}"
+      - traefik.port=9200
+      - traefik.frontend.auth.basic=${CORE_SERVICES_BASIC_AUTH}
+      - com.centurylinklabs.watchtower.enable=true
+
+  prometheus:
+    image: "prom/prometheus"
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.console.libraries=/usr/share/prometheus/console_libraries"
+      - "--web.console.templates=/usr/share/prometheus/consoles"
+    restart: always
+    volumes:
+      - "${DATA_DIR}/prometheus:/prometheus"
+      - "./prometheus.yml:/etc/prometheus/prometheus.yml"
+    networks:
+      - default
+      - prometheus
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=gateway
+      - "traefik.frontend.rule=Host:prometheus-${MACHINE_NAME}.${TOP_LEVEL_DOMAIN_NAME}"
+      - traefik.port=9090
+      - traefik.frontend.auth.basic=${CORE_SERVICES_BASIC_AUTH}
+      - com.centurylinklabs.watchtower.enable=true
+
+  grafana:
+    image: "grafana/grafana"
+    restart: always
+    user: "0"
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_NAME: ${TOP_LEVEL_DOMAIN_NAME}
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+    volumes:
+      - "${DATA_DIR}/grafana:/var/lib/grafana"
+      - "./grafana/provisioning/:/etc/grafana/provisioning/"
+      - "./grafana/plugins/:/var/lib/grafana/plugins/"
+    networks:
+      - default
+      - prometheus
+    depends_on:
+      - prometheus
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=gateway
+      - "traefik.frontend.rule=Host:grafana-${MACHINE_NAME}.${TOP_LEVEL_DOMAIN_NAME}"
+      - traefik.port=3000
+      - "traefik.frontend.headers.customRequestHeaders=CF-Connecting-IP:||CF-IPCountry:||CF-RAY:||CF-Visitor:||True-Client-IP:"
+      - com.centurylinklabs.watchtower.enable=true
